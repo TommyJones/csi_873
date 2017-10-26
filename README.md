@@ -1,0 +1,1 @@
+This repository contains my code from George Mason University's CSI 873 machine learning course taught in the Computational Science and Informatics graduate program. I took the class in the fall semester of 2017. We used the text Machine Learning by Tom M. Mitchell (1997). I am not posting the slides, data, or textbook so as not to infringe on anyone's copywrite. 
