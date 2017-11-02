@@ -1,0 +1,47 @@
+---
+title: "Number 6.9"
+author: "Thomas W. Jones"
+date: "10/29/2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Represent the `PlayTenis` Naive Bayes classifier as a Bayesian network
+```{r}
+
+mat <- rbind(c(0,1,1,1,1),
+             rep(0, 5),
+             rep(0, 5),
+             rep(0, 5),
+             rep(0, 5))
+
+colnames(mat) <- c("PlayTennis", "Outlook","Temperature","Humidity","Wind")
+
+rownames(mat) <- colnames(mat)
+
+g <- igraph::graph.adjacency(mat, mode = "directed")
+
+l <- rbind(c(5, 7),
+           c(0, 5),
+           c(3.3, 5),
+           c(6.7,5),
+           c(10, 5))
+
+plot(g, layout = l)
+```
+
+## Show the conditional probability table of `Wind`
+
+```{r}
+d <- data.frame(Wind = c("weak", "strong", "weak", "weak", "weak", "strong", 
+                         "strong", "weak", "weak", "weak", "strong", "strong",
+                         "weak", "strong"),
+                PlayTennis = c("no", "no", "yes", "yes", "yes", "no", "yes", 
+                               "no", "yes", "yes", "yes", "yes", "yes", "no"))
+
+knitr::kable(prop.table(table(d),2), digits = 3)
+```
+
