@@ -1,3 +1,34 @@
+---
+title: "homework_9"
+author: "Thomas W. Jones"
+date: "11/1/2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+
+## Problem 2
+
+### Overview
+Describe the problem
+
+```{r, echo = FALSE}
+rm(list = ls())
+
+load("kNN_out.RData")
+
+knitr::kable(errors)
+
+
+```
+
+
+
+```{r, eval = FALSE}
 ### prepare the workspace ------------------------------------------------------
 
 # make sure my workspace is clean
@@ -267,3 +298,13 @@ errors <- lapply(assignments, function(a){
 errors <- do.call(rbind, errors)
 
 save(errors, assignments, pred, model, file = "kNN_out.RData")
+```
+
+
+### Load and clean training data
+
+### Declare k-NN fitting and prediction functions
+
+### Load and clean test data
+
+### Iterate over $k = \{1, 2, ..., 7, \infty\}$
