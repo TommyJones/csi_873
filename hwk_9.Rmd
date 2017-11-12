@@ -11,10 +11,31 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Problem 1
 
+For the general case of $\beta$ we start with
+
+\[
+\beta^k \leq n(\frac{1 + \beta}{2})^M
+\]
+
+Doing some algebra gives us
+
+\begin{align*}
+& \implies k\log_2(\beta) \leq \log_2(n) + M\log_2(\frac{1 + \beta}{2}) \\
+& \implies -k\log_2(\beta) \geq -\log_2(n) -M\log_2(\frac{1 + \beta}{2}) \\
+& \implies k\log_2(\frac{1}{\beta}) \geq -\log_2(n) + M\log_2(\frac{2}{1 + \beta}) \\
+& \implies M\log_2(\frac{2}{1 + \beta}) \leq k\log_2(\frac{1}{\beta}) + \log_2(n) \\
+& \implies M \leq \frac{k\log_2(\frac{1}{\beta}) + \log_2(n)}{\log_2(\frac{2}{1 + \beta})}
+\end{align*}
+
+The last lign of which is the inequality we are looking for.
+
+
 ## Problem 2
 
 ### Overview
-Describe the problem
+As instructed, I implemented the k-nearest-neighbors (kNN) algorithm on the digit recognition data set. I executed this for $k \in \{1, 2, ..., 7, n\}$ for both weighted and unweighted runs, where $n$ is the total number of data points. For the weighted runs, the weights follow the formula $w_i = \frac{1}{d(x_i, x_j)^2 + 1}$ where $d(x_i, x_j)$ is the Euclidean distance between points $x_i$ and $x_j$. (I was not required to do the unweighted version for all $n$ points. However, I did so because it was easy to do in my loop, though its results are generally meaningless.)
+
+The error rates of each run are in the table below: 
 
 ```{r, echo = FALSE}
 rm(list = ls())
@@ -22,10 +43,48 @@ rm(list = ls())
 load("kNN_out.RData")
 
 knitr::kable(errors)
-
-
 ```
 
+On the whole, kNN works well for the digit recognition task. It's the best we have used so far! In general, the weighted version is marginally better than the unweighted version. Where $k = 1$ the result is, of course, identical. Where $k = n$, the result is poor. This is no surprise in the unweighted case. In the weighted case, I think a weight that has a stronger decay function would improve things. However, with these results, in practice I'd stop with $k = 1$.
+
+
+### Treatment of the data
+
+I applied the same treatment to the data as in the midterm. 
+
+### Structure of the code
+
+The code has the following main sections. 
+
+1. Preparation of the workspace
+2. Load and prepare the training data
+3. Declare functions for learning and predicting a kNN classifier
+4. Load and prepare the test data
+5. Iterate over $k \in \{1, 2, ..., 7, n\}$ calculating kNN weighted and unweighted
+6. Calculate error rates
+
+I also coded my own euclidean distance function in C++. This function takes two matrices as arguments and calculates the pairwise distances between the rows of the two matrices. This saves on both memory and computation time over off-the-shelf distance functions. These off-the-shelf versions tend to only calculate the pairwise distance between all rows of one matrix. To use these, I'd have to create a large matrix, combining both sets of rows and discard half of the calculations. Very inefficient. 
+
+I combined this C++ function with an R wrapper. The R wrapper trades some memory for speed. It takes the first matrix, chunks it into 4 batches. Then, the distance between each batch and the whole second matrix is calculated in parallel (at least on Unix-like systems). This should speed up the calculation time by 4, minus overhead. Though it does require making 4 copies of the entire second matrix. In this case, the data are large enough to make the tradeoff worth it. Though on smaller data, the parallel overhead would certainly not be justified.
+
+I constructed my kNN training function very simply. "Training" in this case is simply data formatting. All features in $X$ where less than 1% of instances have a non-zero entry are discarded. (This trades some accuracy for computational efficiency.) The target, $Y$, is re-formatted from a factor (categorical) data type to be a matrix with $c$ columns, one for each class. The $i,j$ entries of this matrix are $1$ if the instance is of that class and $0$ otherwise.
+
+The main calculation comes in the prediction function. First, it calculates pairwise distances between the test and training data as described above. This returns a matrix, $D$, of distances whose rows are the points in the test set and columns are the points in the training set. Then, the function iterates over the rows of $D$. For each row, $d$, it selects the $k$ nearest neighbors. Then it consults the rows of $Y$ and takes an average (weighted or unweighted, depending on options) of the classes for those $k$ points. The function returns a matrix whose rows correspond to the test instances and columns correspond to each class. Each row sums to 1 and represents the proportion (weighted or unweighted) of k-nearest-neighbors in each class. Hard class assignments are taken by assigning the class with the highest share.
+
+### Instructions on running the code
+Running this code will be more complicated than the previous assignments as I included a C++ function. This requires that the C++ function be stored in a directory called "scripts" just below the working directory. It must be named "DistMat2Mat.cpp". As with before, I've included code that will automatically download and install necessary R packages. However, to compile the C++ code, you must have a C++ compiler. If you are running a Windows operating system, you will also need to download and install Rtools (https://cran.r-project.org/bin/windows/Rtools). R's Rcpp package will handle compilation and integration with R. You only need to worry about the system requirements.
+
+As before, it will also run in parallel in some sections by default if run in a Unix-like environment. I wrote and tested the below code using R version 3.4.2 on macOS Sierra 10.12.6. It should run just fine on most operating systems, including Windows. I recommend using the RStudio IDE, but it is not necessary. I am happy to provide more specific instructions if I know your operating system.
+
+To run the code, do the following:
+
+1. Create a folder called `data_raw` as a subfolder of your working directory.
+2. Paste `data.zip` inside of `data_raw`.
+3. Create a folder called `scripts` as a subfolder of your working directory.
+4. Open a text editor. Paste the C++ code at the very bottom of this script inside. Save it as `scripts/DistMat2Mat.cpp`.
+3. Open an R console or RStudio console.
+4. If necessary, switch to your working directory using the `setwd` function.
+5. Copy and paste the below code into the R console and press "enter".
 
 
 ```{r, eval = FALSE}
@@ -300,11 +359,42 @@ errors <- do.call(rbind, errors)
 save(errors, assignments, pred, model, file = "kNN_out.RData")
 ```
 
+```
+#include <Rcpp.h>
+#include <cmath>
+using namespace Rcpp;
 
-### Load and clean training data
+// [[Rcpp::export]]
+NumericMatrix DistMat2Mat(NumericMatrix A, NumericMatrix B){
+  
+  NumericMatrix A2 = A; // don't overwrite inputs
+  NumericMatrix B2 = B;
+  
+  int rows = A2.nrow();
+  int cols = A2.ncol();
+  
+  int rows_b = B2.nrow();
 
-### Declare k-NN fitting and prediction functions
-
-### Load and clean test data
-
-### Iterate over $k = \{1, 2, ..., 7, \infty\}$
+  NumericMatrix answer(rows,rows_b);
+  
+  // Do the main calculations
+  for(int j = 0; j < rows; j++){
+    
+    for(int k = 0; k < rows_b; k++){
+      
+      double result = 0.0;
+      
+      for(int i = 0; i < cols; i++){
+        result = result + 
+          (double(A2(j, i)) - double(B2(k, i))) *
+          (double(A2(j, i)) - double(B2(k, i)));
+      }
+      
+      answer(j , k) = std::sqrt(result);
+      
+    }
+  }
+  
+  return(answer);
+}
+```
