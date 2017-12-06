@@ -65,7 +65,124 @@ training_data <- Prepare2(data = training_data)
 
 
 ### 3. Decalre functions for training and predicting SVM -----------------------
-FitSvm <- function(y, x, C = 200) {
+
+# FitSvm <- function(y, x, C = 200) {
+#   
+#   ### format inputs ----
+#   
+#   # make y in {-1, 1}
+#   y <- ifelse(test = y > 0, yes = 1, no = -1)
+#   
+#   # ensure x is a matrix, not a data.frame
+#   x <- as.matrix(x)
+#   
+#   # get some constants
+#   p <- ncol(x) # number of predictors/features
+#   
+#   N <- nrow(x) # number of instances
+#   
+#   ### declare radial basis function ----
+#   rbf <- function(x, gamma) {
+#     exp(-gamma * as.matrix(dist(x))^2)
+#   }
+#   
+#   ### prepare matrices for quadratic optimization ----
+#   
+#   H <- y %*% t(y) * rbf(x, 0.05)
+#   
+#   c_vec <- rep(1, N)
+#   
+#   l <- rep(1, N)
+#   
+#   u <- rep(C, N)
+#   
+#   A <- y
+#   
+#   b <- 0
+#   
+#   r <- 0
+#   
+#   ### Get the solution using kernlab's quadratic solver ----
+#   sol <- kernlab::ipop(c = c_vec,
+#                        H = H,
+#                        A = A,
+#                        b = b,
+#                        l = l,
+#                        u = u,
+#                        r = r)
+#   
+#   ### Get the beta coefficients from the solution to the dual ----
+#   x_inv <- MASS::ginv(x)
+#   
+#   beta <- colSums(dual(sol) * y * rbf(x, 0.05)) %*% t(x_inv)
+#   
+#   yhat <- x %*% t(beta)
+#   
+#   beta0 <- mean(y - yhat, na.rm = TRUE)
+#   
+#   ### Use logistic regression to convert fitted values to probabilities ----
+#   # Note: this also means I don't have to solve for the intercep as 
+#   # this will be de-biased in the regression
+#   d <- data.frame(y = y > 0, 
+#                   yhat = yhat,
+#                   stringsAsFactors = FALSE)
+#   
+#   fit <- glm(y ~ yhat, data = d, family = binomial("logit"))
+#   
+#   ### Prepare result for export ----
+#   
+#   result <- list(b = beta0,
+#                  w = as.vector(beta),
+#                  fitted_values = fit$fitted.values,
+#                  logit_model = fit)
+#   
+#   class(result) <- "SVM"
+#   
+#   result
+# }
+# 
+# predict.SVM <- function(object, newdata, prob = FALSE){
+#   
+#   ### Check/format inputs ----
+#   # make sure object is of the right class
+#   if(class(object) != "SVM")
+#     stop("object must be of class SVM")
+#   
+#   # make sure newdata is a matrix
+#   newdata <- as.matrix(newdata)
+#   
+#   ### Get predictions ----
+#   # biased
+#   yhat_biased <- object$b + newdata %*% object$w
+#   
+#   # unbiased
+#   if (prob) {
+#     d <- data.frame(yhat = yhat_biased)
+#     
+#     yhat <- predict(object$logit_model, d, "response")
+#   } else {
+#     yhat <- sign(yhat_biased)
+#   }
+#   
+#   return(yhat)
+# }
+
+
+### This function calculates distance between the rows of two matrices
+# I wrote it in C++ and compile it here. C++ code is at the bottom of this report
+Rcpp::sourceCpp("scripts/DistMat2Mat.cpp")
+
+# declare a radial basis function
+rbf <- function(newdata, basis, gamma) {
+  
+  d <- DistMat2Mat(newdata, basis) ^ 2
+  
+  exp(-gamma * d)
+  
+}
+
+# declare a function to train SVM objects
+FitSvm <- function(y, x, C = 100, gamma = 0.05, eps = 1e-5) {
   
   ### format inputs ----
   
@@ -80,48 +197,48 @@ FitSvm <- function(y, x, C = 200) {
   
   N <- nrow(x) # number of instances
   
-  ### declare radial basis function ----
-  rbf <- function(x, gamma) {
-    exp(-gamma * as.matrix(dist(x))^2)
-  }
-  
   ### prepare matrices for quadratic optimization ----
+  rbf_x <- rbf(x, x, gamma)
   
-  H <- y %*% t(y) * rbf(x, 0.05)
+  # class-class product matrix pointwise times RBF matrix
+  # quadprog in R requires positivie definite matrices
+  # the nearPD function finds the nearest positive definite matrix
+  D <- Matrix::nearPD(y %*% t(y) * rbf_x)$mat
   
-  c_vec <- rep(1, N)
+  # D <- y %*% t(y) * rbf_x
+  # 
+  # D[ D <= 0 ] <- eps # make D positive definite
   
-  l <- rep(1, N)
+  d <- rep(1, N)
   
-  u <- rep(C, N)
+  A <- matrix(c(y, diag(1, N), diag(-1, N)),
+              nrow=N)
   
-  A <- y
+  b <- c(0, rep(0, N), rep(-C, N))
   
-  b <- 0
+  ### Get the quadratic solution from quadprog ----
+  sol <- quadprog::solve.QP(D,d, A, b, meq = 1)
   
-  r <- 0
+  ### Get the coefficients from the result ----
+  alpha <- sol$solution
   
-  ### Get the solution using kernlab's quadratic solver ----
-  sol <- kernlab::ipop(c = c_vec,
-                       H = H,
-                       A = A,
-                       b = b,
-                       l = l,
-                       u = u,
-                       r = r)
+  sv <- which(alpha > eps)
   
-  ### Get the beta coefficients from the solution to the dual ----
-  x_inv <- MASS::ginv(x)
+  beta <- matrix(y[ sv ] * alpha[ sv ], ncol = 1) # is this right? 
   
-  beta <- colSums(dual(sol) * y * rbf(x, 0.05)) %*% t(x_inv)
+  yhat <- rbf_x[ , sv ] %*% beta
   
-  yhat <- x %*% t(beta)
+  # x_inv <- MASS::ginv(x)
+  # 
+  # beta <- rowSums(alpha * y * rbf_x) %*% t(x_inv)
+  # 
+  # yhat <- x %*% t(beta)
   
   beta0 <- mean(y - yhat, na.rm = TRUE)
   
+  yhat <- yhat + beta0
+  
   ### Use logistic regression to convert fitted values to probabilities ----
-  # Note: this also means I don't have to solve for the intercep as 
-  # this will be de-biased in the regression
   d <- data.frame(y = y > 0, 
                   yhat = yhat,
                   stringsAsFactors = FALSE)
@@ -131,15 +248,20 @@ FitSvm <- function(y, x, C = 200) {
   ### Prepare result for export ----
   
   result <- list(b = beta0,
-                 w = as.vector(beta),
+                 w = beta,
                  fitted_values = fit$fitted.values,
-                 logit_model = fit)
+                 logit_model = fit,
+                 x = x[ sv , ],
+                 gamma = gamma,
+                 sol = sol)
   
   class(result) <- "SVM"
   
   result
+  
 }
 
+# declare a function to predict SVM objects
 predict.SVM <- function(object, newdata, prob = FALSE){
   
   ### Check/format inputs ----
@@ -151,8 +273,12 @@ predict.SVM <- function(object, newdata, prob = FALSE){
   newdata <- as.matrix(newdata)
   
   ### Get predictions ----
+  
+  # map to kernel space
+  kmat <- rbf(newdata, object$x, object$gamma)
+  
   # biased
-  yhat_biased <- object$b + newdata %*% object$w
+  yhat_biased <- object$b + kmat %*% object$w
   
   # unbiased
   if (prob) {
@@ -165,6 +291,7 @@ predict.SVM <- function(object, newdata, prob = FALSE){
   
   return(yhat)
 }
+
 
 ### 4. Classify 3's vs 6's -----------------------------------------------------
 
@@ -183,7 +310,8 @@ samp <- do.call(c, samp)
 
 train_36 <- all_36[ samp , ]
 
-test_36 <- all_36[ setdiff(rownames(all_36), samp) , ]
+# sample 1000 rows for a test set
+test_36 <- all_36[ sample(setdiff(rownames(all_36), samp), 1000) , ]
 
 # train an svm model
 svm_36 <- FitSvm(y = train_36$y == "3", 
@@ -301,7 +429,7 @@ samp <- do.call(c, samp)
 
 train_even_odd <- even_odd[ samp , ]
 
-test_even_odd <- even_odd[ setdiff(rownames(even_odd), samp) , ]
+test_even_odd <- even_odd[ sample(setdiff(rownames(even_odd), samp), 1000) , ]
 
 # train an svm model
 svm_even_odd <- FitSvm(y = train_even_odd$y, 
@@ -372,10 +500,6 @@ error_all <- 1 - sum(diag(error_all)) / sum(error_all)
 
 ### 10. Compare results to NB, ANN, and KNN -------------------------------------
 
-# first, let's save our results
-save(list = grep("error_", ls(), value = TRUE),
-     file = "svm_errors.RData")
-
 # get 95% confidence interval for total SVM error
 conf <- c(error_all - 1.96 * sqrt(error_all * (1 - error_all) / 20000),
           error_all + 1.96 * sqrt(error_all * (1 - error_all) / 20000))
@@ -387,4 +511,7 @@ comp <- data.frame(model = c("NB", "ANN", "kNN", "SVM"),
                    conf_high = c(.166, .148, .039, conf[ 2 ]),
                    stringsAsFactors = FALSE)
 
+# first, let's save our results
+save(list = c(grep("error_", ls(), value = TRUE), "comp"),
+     file = "svm_errors.RData")
 
