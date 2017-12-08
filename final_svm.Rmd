@@ -1,3 +1,99 @@
+---
+title: "CSI 873 Final"
+author: "Thomas W. Jones"
+date: "12/14/2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r make_tables}
+
+rm(list = ls())
+
+load("svm_errors.RData")
+
+table1 <- cbind(Type = c("3 vs. 6", "Even vs. Odd", "All Digits"),
+                     Error = round(c(error_36, error_even_odd, error_all), 3))
+
+table2 <- cbind(Reduction = paste0((1 - as.numeric(names(error_low_pix))) * 100, "%"),
+                Pixels = round(unlist(error_low_pix), 3),
+                SVD = round(unlist(error_svd_36), 3),
+                Instances = round(unlist(error_lower_obs), 3))
+
+rownames(table2) <- NULL
+
+table3 <- cbind(Model = comp$model,
+                Error = round(comp$error, 3),
+                "Conf. Lower Bound" = round(comp$conf_low, 3),
+                "Conf. Upper Bound" = round(comp$conf_high, 3))
+
+```
+
+
+### Overview
+As I instructed, I implemented several SVMs using a quadratic optimization routine. My implementation is in the R language. (The inputs to R's `quadprog` package are different than the Matlab `quadprog` subroutine.) For all models, I used a radial-basis function (RBF) kernel SVM with parameters $\gamma = 0.05$ for the RBF and $C = 100$ for the cost.
+
+```{r table1}
+knitr::kable(table1, digits = 3,
+             caption = "Table 1: Classification errors using all features")
+```
+
+Table 1, above, depicts error rates comparing models predicting 3 vs. 6, evens vs. odds, and finally for all digits. In the first two cases, I used a test set of 1,000 randomly-sampled instances that were not used for training. In the last case, I used all 20,000 records in the test set. 
+
+I am not surprised that 3 vs. 6 performs so well. It is a constrained space. I am also not surprised that the error rate is significantly higher for evens vs. odds. There is no inherent visual element separating even numbers and odd numbers. For example, the digit 7 (odd) contains mostly straight lines, as does 4 (even). And 3 is curved and symmetric, as is 8. If anything, I am surprised that the error rate is not significantly higher. I am surprised that the error rate for all digits is so close to the evens vs. odds example. 
+
+
+```{r table2}
+knitr::kable(table2, digits = 3,
+             caption = "Table 2: Error rates for 3 vs. 6 with dimensionality reduction")
+```
+
+Table 2, above, compares 3 different dimensionality reductions, at 4 levels, for the 3 vs. 6 problem. The dimension reductions considered were reducing the number of pixels, using a single value decomposition (SVD), and reducing the sample size. Each reduction was done at 50% (of columns or rows), 75%, 90%, and 95%. Unsurprisingly, the more severe reductions increased the error. Shockingly, using SVD to reduce the dimensions _reduced_ the error! I think that the best analogy is that while the other two methods are deleting data, SVD is "focusing" the picture. 
+ 
+```{r table3}
+knitr::kable(table3, digits = 3,
+             caption = "Table 3: Error rates comparing models")
+```
+
+Table 3, above, compares error rates for all models we implemented this semester. I won't bother ranking naive Bayes (NB), artificial neural networks (ANN), and SVM. All of their error rates were right on top of each other. However, k-nearest neighbors (kNN) was far-and-away the most accurate classifier we used. But kNN has several drawbacks compared to other classifiers. Most notably it is very slow and memory intensive while running inference. A significant advantage of SVM (particularly linear SVM) is that it is very fast for inference.
+
+### Treatment of the data
+I applied the same treatment to the data as in the midterm and kNN assignment.
+
+### Notes on the code
+The code below is fairly straightforward. Each section is labeled and commented.
+
+I used R's `quadprog` package for quadratic optimization. `quadprog` requires positive definite matrices. So, after setting up my matrices and vectors for optimization, I use a function `nearPD`. This function takes a non-positive definite matrix and calculates the nearest positive definite matrix to an approximate one. It is typically used for correlation or variance-covariance matrices. 
+
+I also set a parameter `eps`, short for "epsilon" or $\epsilon$, used for selecting support vectors. Instead of selecting all $\alpha_i > 0$ as support vectors, I select all $alpha > \epsilon$ to further reduce the complexity of my solution. 
+
+For SVD, I used the `FitLsaModel` function from the `textmineR` package. Latent semantic analysis (LSA) is just SVD applied to textual data. However, `textmineR`'s function doesn't require textual data. Plus it's fast and easy to use. 
+
+As with other assignments, I approached this problem by creating a training function, which returns an object. And I constructed a predict method for that object. Then I apply the function and predict method for each of our problems.
+
+### Instructions on running the code
+Running this code will be more complicated than the previous assignments as I included a C++ function. This requires that the C++ function be stored in a directory called "scripts" just below the working directory. It must be named "DistMat2Mat.cpp". The C++ code for "DistMat2Mat.cpp" is pasted  below the R code chunk in gray. (The C++ code has a white background.)
+
+As with before, I've included code that will automatically download and install necessary R packages. However, to compile the C++ code, you must have a C++ compiler. If you are running a Windows operating system, you will also need to download and install Rtools (https://cran.r-project.org/bin/windows/Rtools). R's Rcpp package will handle compilation and integration with R. You only need to worry about the system requirements.
+
+As before, it will also run in parallel in some sections by default if run in a Unix-like environment. I wrote and tested the below code using R version 3.4.2 on macOS Sierra 10.12.6. It should run just fine on most operating systems, including Windows. I recommend using the RStudio IDE, but it is not necessary. I am happy to provide more specific instructions if I know your operating system.
+
+To run the code, do the following:
+
+1. Create a folder called `data_raw` as a subfolder of your working directory.
+2. Paste `data.zip` inside of `data_raw`.
+3. Create a folder called `scripts` as a subfolder of your working directory.
+4. Open a text editor. Paste the C++ code at the very bottom of this script inside. Save it as `scripts/DistMat2Mat.cpp`.
+3. Open an R console or RStudio console.
+4. If necessary, switch to your working directory using the `setwd` function.
+5. Copy and paste the below code into the R console and press "enter".
+
+
+
+```{r code, eval = FALSE, echo = TRUE}
 ################################################################################
 # This script runs the final exam stuff
 ################################################################################
@@ -413,3 +509,45 @@ comp <- data.frame(model = c("NB", "ANN", "kNN", "SVM"),
 save(list = c(grep("error_", ls(), value = TRUE), "comp"),
      file = "svm_errors.RData")
 
+
+```
+
+```
+#include <Rcpp.h>
+#include <cmath>
+using namespace Rcpp;
+
+// [[Rcpp::export]]
+NumericMatrix DistMat2Mat(NumericMatrix A, NumericMatrix B){
+  
+  NumericMatrix A2 = A; // don't overwrite inputs
+  NumericMatrix B2 = B;
+  
+  int rows = A2.nrow();
+  int cols = A2.ncol();
+  
+  int rows_b = B2.nrow();
+
+  NumericMatrix answer(rows,rows_b);
+  
+  // Do the main calculations
+  for(int j = 0; j < rows; j++){
+    
+    for(int k = 0; k < rows_b; k++){
+      
+      double result = 0.0;
+      
+      for(int i = 0; i < cols; i++){
+        result = result + 
+          (double(A2(j, i)) - double(B2(k, i))) *
+          (double(A2(j, i)) - double(B2(k, i)));
+      }
+      
+      answer(j , k) = std::sqrt(result);
+      
+    }
+  }
+  
+  return(answer);
+}
+```
